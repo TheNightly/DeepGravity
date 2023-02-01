@@ -42,16 +42,48 @@ class FlowDataset(torch.utils.data.Dataset):
         'Denotes the total number of samples'
         return len(self.list_IDs)
 
-    def get_features(self, oa_origin, oa_destination):
+    def get_features(self, oa_origin, oa_destination, df='exponential'):
         oa2features = self.oa2features
         oa2centroid = self.oa2centroid
+        oa2pop = self.oa2pop
         dist_od = utils.earth_distance(oa2centroid[oa_origin], oa2centroid[oa_destination])
+    
+        if self.model in ['G']:
+            if df == 'powerlaw':
+                return [np.log(oa2features[oa_destination])] + [np.log(dist_od)]
+            else:
+                return [np.log(oa2features[oa_destination])] + [dist_od]
+        elif self.model in ['NG']:
+            if df == 'powerlaw':
+                return [np.log(oa2features[oa_origin])] + [np.log(oa2features[oa_destination])] + [np.log(dist_od)]
+            else:
+                return [np.log(oa2features[oa_origin])] + [np.log(oa2features[oa_destination])] + [dist_od]
+        elif self.model in ['DGsum']:
+            return [oa2features[oa_origin][0]] + [np.sum(oa2features[oa_origin][1:])] + [oa2features[oa_destination][0]] + [np.sum(oa2features[oa_destination][1:])] + [dist_od]
+            return None
+        else:
+            if oa_origin in oa2features:
+                origin_features = oa2features[oa_origin]
+            else:
+                origin_features = [0] * 19 
 
-        return oa2features[oa_origin] + oa2features[oa_destination] + [dist_od]
+            if oa_destination in oa2features:
+                dest_features = oa2features[oa_destination]
+            else:
+                dest_features =  [0] * 19 
+            
+            # print(f"originfeatures len {len(oa2features[oa_origin])} {oa2features[oa_origin]}")
+            # print(f"destfeatures len {len(oa2features[oa_destination])} {oa2features[oa_destination]}")
+            # print(f"dist len {[dist_od]}")
+            return origin_features + dest_features + [dist_od]
+            #return [np.log(oa2pop[oa_origin])] + oa2features[oa_origin] + \
+            #       [np.log(oa2pop[oa_destination])] +  oa2features[oa_destination] + [dist_od]
+
 
     def get_flow(self, oa_origin, oa_destination):
         o2d2flow = self.o2d2flow
         try:
+            # return od2flow[(oa_origin, oa_destination)]
             return o2d2flow[oa_origin][oa_destination]
         except KeyError:
             return 0
@@ -65,6 +97,7 @@ class FlowDataset(torch.utils.data.Dataset):
             true_dests_all = []
         size_true_dests = min(int(size_train_dest * frac_true_dest), len(true_dests_all))
         size_fake_dests = size_train_dest - size_true_dests
+        # print(size_train_dest, size_true_dests, size_fake_dests, len(true_dests_all))
 
         true_dests = np.random.choice(true_dests_all, size=size_true_dests, replace=False)
         fake_dests_all = list(set(all_locs_in_train_region) - set(true_dests))
@@ -75,6 +108,13 @@ class FlowDataset(torch.utils.data.Dataset):
         return dests
 
     def get_X_T(self, origin_locs, dest_locs):
+        """
+        origin_locs  :  list 1 X n_orig, IDs of origin locations
+        dest_locs  :  list n_orig X n_dest, for each origin, IDs of destination locations
+        """
+        o2d2flow = self.o2d2flow
+        oa2features = self.oa2features
+        oa2centroid = self.oa2centroid
 
         X, T = [], []
         for en, i in enumerate(origin_locs):
@@ -89,22 +129,31 @@ class FlowDataset(torch.utils.data.Dataset):
         return teX, teT
 
     def __getitem__(self, index: int) -> Tuple[Any, Any]:
+        'Generates one sample of data (one location)'
 
         tileid2oa2features2vals = self.tileid2oa2features2vals
+        o2d2flow = self.o2d2flow
+        oa2features = self.oa2features
+        oa2centroid = self.oa2centroid
         dim_dests = self.dim_dests
+        frac_true_dest = self.frac_true_dest
         oa2tile = self.oa2tile
 
         # Select sample (tile)
         sampled_origins = [self.list_IDs[index]]
         tile_ID = oa2tile[sampled_origins[0]]
+        #print('tile_ID: %s'%tile_ID)
 
+        # Load data and get flows
+
+        # Select a subset of OD pairs
         all_locs_in_train_region = list(tileid2oa2features2vals[tile_ID].keys())
         size_train_dest = min(dim_dests, len(all_locs_in_train_region))
         sampled_dests = [self.get_destinations(oa, size_train_dest, all_locs_in_train_region)
                          for oa in sampled_origins]
 
+        # get the features and flows
         sampled_trX, sampled_trT = self.get_X_T(sampled_origins, sampled_dests)
-
 
         return sampled_trX, sampled_trT, sampled_origins
 
@@ -112,8 +161,19 @@ class FlowDataset(torch.utils.data.Dataset):
         'Generates one sample of data (one tile)'
 
         tileid2oa2features2vals = self.tileid2oa2features2vals
+        o2d2flow = self.o2d2flow
+        oa2features = self.oa2features
+        oa2centroid = self.oa2centroid
         dim_dests = self.dim_dests
+        frac_true_dest = self.frac_true_dest
+
+        # Select sample (tile)
         tile_ID = self.list_IDs[index]
+        #print('tile_ID: %s'%tile_ID)
+
+        # Load data and get flows
+
+        # get all the locations in tile_ID
         sampled_origins = list(tileid2oa2features2vals[tile_ID].keys())
 
         # Select a subset of OD pairs
