@@ -37,7 +37,34 @@ class FlowDataset(torch.utils.data.Dataset):
         self.frac_true_dest = frac_true_dest
         self.model = model
         self.oa2tile = {oa:tile for tile,oa2v in tileid2oa2features2vals.items() for oa in oa2v.keys()}
+        self.loc_blacklist = set()
 
+        # Remove all ids not in features
+        for i in self.list_IDs:
+            if i not in self.oa2features:
+                self.loc_blacklist.add(i)
+                print(f"Loc {i} feature missing. Added to blacklist.")
+        
+        for k in self.tileid2oa2features2vals.keys():
+            v = tileid2oa2features2vals[k]
+            to_remove = []
+            for k2 in v.keys():
+                if (len(v[k2]) == 0):
+                    self.loc_blacklist.add(k2)
+                    to_remove.append(k2)
+                    print(f"Loc {k2} idmap feature missing. Added to blacklist.")
+            for i in to_remove:
+                v.__delitem__(i)
+                print(f"Removing loc {i} from tileid")
+                
+        for i in self.loc_blacklist:
+            # if i in tileid2oa2features2vals.keys():
+            #     self.tileid2oa2features2vals.__delitem__(i)
+            #     print(f"Removing loc {i} from tileid")
+            if i in self.list_IDs:
+                self.list_IDs.remove(i)
+                print(f"Removing loc {i} from idlist")
+        
     def __len__(self) -> int:
         'Denotes the total number of samples'
         return len(self.list_IDs)
@@ -65,11 +92,13 @@ class FlowDataset(torch.utils.data.Dataset):
             if oa_origin in oa2features:
                 origin_features = oa2features[oa_origin]
             else:
+                print(f"origin Loc {oa_origin} not found")
                 origin_features = [0] * 19 
 
             if oa_destination in oa2features:
                 dest_features = oa2features[oa_destination]
             else:
+                print(f"dest Loc {oa_destination} not found")
                 dest_features =  [0] * 19 
             
             # print(f"originfeatures len {len(oa2features[oa_origin])} {oa2features[oa_origin]}")
@@ -115,14 +144,17 @@ class FlowDataset(torch.utils.data.Dataset):
         o2d2flow = self.o2d2flow
         oa2features = self.oa2features
         oa2centroid = self.oa2centroid
-
+        # print(origin_locs)
+        # print(dest_locs)
         X, T = [], []
         for en, i in enumerate(origin_locs):
             X += [[]]
             T += [[]]
             for j in dest_locs[en]:
-                X[-1] += [self.get_features(i, j)]
-                T[-1] += [self.get_flow(i, j)]
+                if j in oa2features:
+                    X[-1] += [self.get_features(i, j)]
+                    T[-1] += [self.get_flow(i, j)]
+            # print(X)
 
         teX = torch.from_numpy(np.array(X)).float()
         teT = torch.from_numpy(np.array(T)).float()
