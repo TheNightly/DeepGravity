@@ -41,7 +41,7 @@ def _check_base_files(db_dir):
     print('Tessellation, Flows and Output Areas have been found....')    
        
     
-def _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, oa_geometry, flow_origin_column, flow_destination_column, flow_flows_column):
+def _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, oa_geometry, flow_origin_column, flow_destination_column, flow_flows_column, feature_file_name):
     # first, we check if there are at least the needed files into the base directory. 
     _check_base_files(db_dir)
 
@@ -57,6 +57,7 @@ def _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, 
         tessellation = geopandas.read_file(db_dir+'/tessellation.shp', dtype={tile_id_column:str})
     except:
         tessellation = geopandas.read_file(db_dir+'/tessellation.geojson', dtype={tile_id_column:str})
+    print(f"tesselation {tessellation}")
     tessellation = tessellation[[tile_id_column, tile_geometry]]
     print('Reading output areas....')
     try: 
@@ -66,7 +67,7 @@ def _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, 
     output_areas = output_areas[[oa_id_column, oa_geometry]]
     print('Reading features....')
     try:
-        features = pd.read_csv(db_dir+'/features.csv')
+        features = pd.read_csv(db_dir+'/'+ feature_file_name)
         if not oa_id_column in list(features.columns):
             raise ValueError('Features must be associated with an output area. Please add a column '++' to features.csv')
     except:
@@ -115,7 +116,7 @@ def _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, 
     with open(db_dir+'/processed/od2flow.pkl', 'wb') as handle:
         pickle.dump(od2flow, handle)
     
-    features = pd.read_csv(db_dir+'/features.csv', dtype={oa_id_column:str})
+    features = pd.read_csv(db_dir+'/' + feature_file_name, dtype={oa_id_column:str})
     
     oa2features = {}
     for i,row in features.iterrows():
@@ -138,6 +139,10 @@ def _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, 
         for item in zip(list(row.keys()),row.values):
             if "named" in item[0]:
                 continue
+            curr_feature =  row[oa_id_column]
+            if curr_feature not in mapping_dict:
+                print(f"id {curr_feature} not in mapping dict")
+                continue
             for tile_id in mapping_dict[row[oa_id_column]]:
                 tileid2oa2handmade_features[tile_id][row[oa_id_column]][item[0]]=[item[1]]
     
@@ -158,11 +163,11 @@ def tessellation_definition(db_dir,name,size):
         tessellation = tilers.tiler.get("squared", base_shape=name, meters=size)
         tessellation.to_file(db_dir+'/tessellation.shp')
     
-def load_data(db_dir, tile_id_column, tile_geometry, oa_id_column, oa_geometry, flow_origin_column, flow_destination_column, flow_flows_column):
+def load_data(db_dir, tile_id_column, tile_geometry, oa_id_column, oa_geometry, flow_origin_column, flow_destination_column, flow_flows_column, feature_file_name):
     # check if there are the computed information
     if not _is_support_files_computed(db_dir):
         print("Computing support files! ")
-        _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, oa_geometry, flow_origin_column, flow_destination_column, flow_flows_column)
+        _compute_support_files(db_dir, tile_id_column, tile_geometry, oa_id_column, oa_geometry, flow_origin_column, flow_destination_column, flow_flows_column, feature_file_name)
         
     # tileid2oa2features2vals
     with open(db_dir + '/processed/tileid2oa2handmade_features.json') as f:

@@ -1,0 +1,1 @@
+python main.py --dataset new_york --oa-id-column GEOID --flow-origin-column geoid_o --flow-destination-column geoid_d --flow-flows-column pop_flows --epochs 20 --device gpu --mode train --feature-file-name=features_gonly.csv

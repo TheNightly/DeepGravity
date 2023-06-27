@@ -1,0 +1,1 @@
+python main.py --dataset seattle --oa-id-column GEOID --flow-origin-column origin --flow-destination-column destination --flow-flows-column flow --epochs 20 --device gpu --mode train --tile-id-column=OBJECTID

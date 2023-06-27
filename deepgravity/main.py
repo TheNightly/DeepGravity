@@ -51,10 +51,13 @@ parser.add_argument('--flow-origin-column', default='origin', help='Column name 
 parser.add_argument('--flow-destination-column', default='destination', help='Column name of flows\' destination')
 parser.add_argument('--flow-flows-column', default='flow', help='Column name of flows\' actual value')
 
+parser.add_argument('--feature-file-name', default='features.csv', help='File name of features file\' actual value')
+
+parser.add_argument('--generate-comparisons', default=True,type=bool, help='parameter to specify if output generations are generated')
 args = parser.parse_args()
 
 # global settings
-model_type = 'DG'
+model_type = 'NG'
 data_name = args.dataset
 
 # random seeds
@@ -131,7 +134,6 @@ def test():
                 output = model.forward(data)
                 test_loss += model.loss(output, target).item()
 
-              
                 cpc = model.get_cpc(data, target)
                 test_accuracy += cpc 
                 n_origins += 1
@@ -143,19 +145,36 @@ def test():
 
 def evaluate():
     loc2cpc_numerator = {}
-
+    if args.generate_comparisons:
+        output_writer = open('results/flow_comparisons_' + args.dataset +"_" + model_type + "_"  +args.feature_file_name, 'w')
+        output_writer.write("origin,destination,original_flow,generated_flow\n")
     model.eval()
     with torch.no_grad():
         ids = [0]
         for data_temp in test_loader:
+            # print(f"data_temp[0] length {data_temp[0].shape}")
+            # print(f"data_temp[1] length {data_temp[1].shape}")
+            # print(f"data_temp[2]  {data_temp[2]}")
+            # print(f"data_temp[3]  {data_temp[3][0].shape}")
             b_data = data_temp[0]
             b_target = data_temp[1]
             ids[0] = data_temp[2][0][0]
             for id, data, target in zip(ids, b_data, b_target):
                 if args.cuda:
                     data, target = data.cuda(), target.cuda()
-                output = model.forward(data)
+                # print(f"data len({data.shape}) {data}")
+                # print(f"target len({target.shape}) {target}")
+                
+                if args.generate_comparisons:
+                    output = model.average_OD_model(data, target)
+                    generated_flows = output.flatten()
+                    observed_flows = target.flatten()
+                    for origin in ids:
+                        for i, destination in enumerate(list(data_temp[3][0].flatten())):
+                            output_writer.write(f"{origin},{destination},{observed_flows[i]},{generated_flows[i]}\n")
+
                 cpc = model.get_cpc(data, target, numerator_only=True)
+                # print(cpc)
                 loc2cpc_numerator[id] = cpc
     edf = pd.DataFrame.from_dict(loc2cpc_numerator, columns=['cpc_num'], orient='index').reset_index().rename(columns={'index': 'locID'})
     oa2tile = {oa:t for t,v in tileid2oa2features2vals.items() for oa in v.keys()}
@@ -195,9 +214,9 @@ def evaluate():
     
 utils.tessellation_definition(db_dir,args.tessellation_area, args.tessellation_size)
     
-tileid2oa2features2vals, oa_gdf, flow_df, oa2pop, oa2features, od2flow, oa2centroid =utils.load_data(db_dir, args.tile_id_column, args.tile_geometry, args.oa_id_column, args.oa_geometry, args.flow_origin_column, args.flow_destination_column, args.flow_flows_column)
+tileid2oa2features2vals, oa_gdf, flow_df, oa2pop, oa2features, od2flow, oa2centroid =utils.load_data(db_dir, args.tile_id_column, args.tile_geometry, args.oa_id_column, args.oa_geometry, args.flow_origin_column, args.flow_destination_column, args.flow_flows_column, args.feature_file_name)
 
-oa2features = {oa: [np.log(oa2pop[oa])] + feats for oa,feats in oa2features.items()}
+oa2features = {oa: [oa2pop[oa]] + feats for oa,feats in oa2features.items()}
 
 
 o2d2flow = {}
@@ -229,7 +248,6 @@ test_dataset_args = {'tileid2oa2features2vals': tileid2oa2features2vals,
 # datasets
 train_data = [oa for t in pd.read_csv(db_dir + '/processed/train_tiles.csv', header=None, dtype=object)[0].values for oa in tileid2oa2features2vals[str(t)].keys()]
 test_data = [oa for t in pd.read_csv(db_dir + '/processed/test_tiles.csv', header=None)[0].values for oa in tileid2oa2features2vals[str(t)].keys()]  
-
 train_dataset = dgd.FlowDataset(train_data, **train_dataset_args)
 train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=args.batch_size)
 
@@ -243,7 +261,6 @@ dim_input = len(train_dataset.get_features(train_data[0], train_data[0]))
 
     
 if args.mode == 'train':
-    
     
     model = utils.instantiate_model(oa2centroid, oa2features, oa2pop, dim_input, device=torch_device)
     if args.device.find("gpu") != -1:
